@@ -1,5 +1,5 @@
 # Deep Research Agent (Qwen 235B + Web Scraping + Prompt Orchestration)
-
+####  shitty .md made by chatgpt
 ## 🚀 Overview
 This project is an experiment in building an **AI-powered research assistant** based on **Qwen-Agent** capable of producing long-form, reference-backed reports.  
 
@@ -65,5 +65,3 @@ If you’re into applied AI, research automation, or just want to talk nerd stuf
 - 📬 GitHub Issues / PRs welcome!  
 
 
-
-shitty .md made by chatgpt
