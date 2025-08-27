@@ -8,7 +8,8 @@ import json5
 from typing import List, Union, Any, Dict
 from bs4 import BeautifulSoup
 import os 
-import dotenv
+from dotenv import load_dotenv
+load_dotenv()
 
 @register_tool('google_search', allow_overwrite=True)
 class GoogleSearch(BaseTool):
@@ -138,7 +139,14 @@ class WebContentExtractor(BaseTool):
     A tool to extract the main textual content from a given URL.
     """
     name = 'web_content_extractor'
-    description = 'Extracts the main content from a URL, filtering out headers, footers, ads, and navigation bars.'
+    description = "Retrieves the main text content from a given webpage URL. Supports extracting a specific character range, allowing partial reads or continuation from a chosen point."
+
+    tags = {
+            'unwanted_classes':["social", "share", "follow", "ads", "popup", "widget", "related", "sidebar", "menu"]            ,
+            'unwanted_tags':["header", "footer", "nav", "aside", "script", "style", "button", "svg"],
+            'wanted_tags': ["h1", "h2", "h3", "p", "li", "span", "pre"]
+        }
+    
     parameters = {
         'type': 'object',
         'properties': {
@@ -146,23 +154,15 @@ class WebContentExtractor(BaseTool):
                 'type': 'string',
                 'description': 'The URL of the webpage to extract content from.'
             },
-            'unwanted_classes': {
-                'type': 'array',
-                'items': {'type': 'string'},
-                'description': 'A list of CSS class names to remove from the page.',
-                'default': ["social", "share", "follow", "ads", "popup", "widget", "related", "sidebar", "menu"]
+            'begin': {
+                'type': 'integer',
+                'description': 'The starting character index of the content to extract.',
+               'default': 0
             },
-            'unwanted_tags': {
-                'type': 'array',
-                'items': {'type': 'string'},
-                'description': 'A list of HTML tags to remove from the page.',
-                'default': ["header", "footer", "nav", "aside", "script", "style", "button", "svg"]
-            },
-            'wanted_tags': {
-                'type': 'array',
-                'items': {'type': 'string'},
-                'description': 'A list of HTML tags to extract text from.',
-                'default': ["h1", "h2", "h3", "p", "li", "span", "pre"]
+            'end': {
+                'type': 'integer',
+                'description': 'The ending character index of the content to extract.',
+               'default': 4000
             }
         },
         'required': ['url']
@@ -173,67 +173,107 @@ class WebContentExtractor(BaseTool):
         Main entry point for the tool.
         It parses parameters and calls the extraction logic.
         """
-        params = self._verify_json_format_args(params)
         
         # Set default values from the schema if not provided
-        url = params['url']
-        unwanted_classes = params.get('unwanted_classes', self.parameters['properties']['unwanted_classes']['default'])
-        unwanted_tags = params.get('unwanted_tags', self.parameters['properties']['unwanted_tags']['default'])
-        wanted_tags = params.get('wanted_tags', self.parameters['properties']['wanted_tags']['default'])
+
+        params = json5.loads(params) if isinstance(params, str) else params
+
+        url = params.get('url', "google.com")
+        begin = params.get('begin', self.parameters['properties']['begin']['default'])
+        end =params.get('end', self.parameters['properties']['end']['default'])
+
+        unwanted_classes = self.tags['unwanted_classes'] # params.get('unwanted_classes', self.parameters['properties']['unwanted_classes']['default'])
+        unwanted_tags =   self.tags['unwanted_tags'] #params.get('unwanted_tags', self.parameters['properties']['unwanted_tags']['default'])
+        wanted_tags = self.tags["wanted_tags"] #params.get('wanted_tags', self.parameters['properties']['wanted_tags']['default'])
         
         return self._extract_content(
             url=url,
-            unwanted_classes=unwanted_classes,
-            unwanted_tags=unwanted_tags,
-            wanted_tags=wanted_tags
+            begin=begin,
+            end=end
         )
 
     def _extract_content(
         self,
         url: str,
-        unwanted_classes: List[str],
-        unwanted_tags: List[str],
-        wanted_tags: List[str],
+        begin: int = 0,
+        end: int = 4000,
         headers: Dict[str, str] = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    ) -> str:
-        """
-        Performs the web scraping and content extraction.
-        """
+    ) -> str:    
         try:
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-        except requests.RequestException as e:
-            return f"Failed to fetch URL: {e}"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        # 1. Remove unwanted tags
-        for tag in soup(unwanted_tags):
-            tag.decompose()
+            for tag in soup(["style", "script", "nav", "header", "footer", "img", "video"]):
+                tag.decompose()
 
-        # 2. Remove unwanted classes
-        unwanted_regex = re.compile(r"|".join(unwanted_classes), re.IGNORECASE)
-        for tag in soup.find_all(class_=lambda c: c and unwanted_regex.search(c)):
-            tag.decompose()
+
+            unwanted_regex = re.compile(r"|".join(["footer"]), re.IGNORECASE)
+            for tag in soup.find_all(class_=lambda c: c and unwanted_regex.search(c)):
+                tag.decompose()
+            
+            # --- PASO 3: EXTRAER - Recorrer los elementos y convertirlos a Markdown ---
+            paragraphs = []
+            for p in soup.find_all(["table", "h1", "h2", "h3", "p", "li", "pre", "blockquote"], recursive=True):
+                # Ignoramos si el elemento está dentro de una tabla (ya que table_to_markdown se encarga)
+                if p.find_parent("table"):
+                    if p.name != "table": # Evita procesar 'p' dentro de una 'td' de una tabla ya procesada
+                        continue
+
+                text = p.get_text(strip=False) # strip=True es mejor para limpiar espacios en blanco
+                if not text:
+                    continue
+                
+                # Tu lógica de conversión, ligeramente ajustada para consistencia
+                if p.name == "h1":
+                    content = f"# {text.strip()}\n"
+                elif p.name == "h2":
+                    content = f"## {text.strip()}\n"
+                elif p.name == "h3":
+                    content = f"### {text.strip()}\n"
+                elif p.name == "li":
+                    content = f"- {text.strip()}\n"
+                elif p.name == "pre" or p.name == "blockquote":
+                    content = f"> {text.strip()}\n"
+                elif p.name == "table":
+                    content = self._table_to_markdown(p)
+                else: # p
+                    content = f"{text}\n"
+                
+                paragraphs.append(content)
+
+            return "".join(paragraphs)[begin:end] if paragraphs else "Error: No se pudo extraer contenido significativo."
+
+        except requests.exceptions.RequestException as e:
+            return f"Error al acceder a la URL: {e}"
+        except Exception as e:
+            return f"Ocurrió un error inesperado: {e}"
         
-        # 3. Extract and format content from wanted tags
-        paragraphs = []
-        for p in soup.find_all(wanted_tags):
-            text = p.get_text(strip=True)
-            if not text:
+
+    def _table_to_markdown(self, table_tag):
+        processed_rows = []
+        table_header = table_tag.find('th')
+        title = f"### {table_header.get_text(strip=True)}\n\n" if table_header else ""
+        for row in table_tag.find_all('tr'):
+            cols = row.select(':scope > td')
+            if not cols and row.find('th'):
+                cols = row.find_all('td')
+            if len(cols) < 2:
                 continue
+            key = cols[0].get_text(strip=True)
+            value = cols[1].get_text(strip=True)
+            if key:
+                processed_rows.append([key, value])
+            elif processed_rows:
+                processed_rows[-1][1] += f" / {value}"
+        if not processed_rows:
+            return title
+        markdown_table = f"{title}| Característica | Detalles |\n"
+        markdown_table += "|---|---|\n"
+        for key, value in processed_rows:
+            key_clean = key.replace('|', r'\|')
+            value_clean = value.replace('|', r'\|')
+            markdown_table += f"| {key_clean} | {value_clean} |\n"
+        return markdown_table.join("\n\n")
 
-            if p.name == "h1":
-                content = f"tittle: {text}."
-            elif p.name == "h2":
-                content = f"sub-tittle: {text}."
-            elif p.name == "h3":
-                content = f"subsection-tittle: {text}."
-            elif p.name == "li":
-                content = f"- {text}"
-            else: # p, span, pre
-                content = text
-            
-            paragraphs.append(content)
-            
-        return " ".join(paragraphs) if paragraphs else "No content extracted."

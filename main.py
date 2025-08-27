@@ -2,15 +2,15 @@ from qwen_agent.agents import Assistant
 from qwen_agent.utils.output_beautify import typewriter_print
 import os
 import utils.tools
-import dotenv
+from dotenv import load_dotenv
 from utils.system import SYSTEM_PROMPT as system_instruction
-
+load_dotenv()
 # Assuming BaseTool and register_tool are defined elsewhere, as in the original context.
 # from some_module import BaseTool, register_tool
 
 # Step 2: Configure the LLM you are using.
-
-dashcope_model = {
+print(os.getenv('DASHSCOPE_API_KEY'))
+dashscope_model = {
     "model":'qwen3-235b-a22b-thinking-2507',
     "model_server": 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     'api_key': os.getenv('DASHSCOPE_API_KEY')
@@ -35,9 +35,9 @@ tools = [
     'file_saver'
     ]  
 
-bot = Assistant(llm=dashcope_model,
+bot = Assistant(llm=dashscope_model,
                 system_message=system_instruction,
-                function_list=tools,
+                function_list=tools
                 )
 
 from qwen_agent.gui import WebUI
