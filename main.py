@@ -17,10 +17,16 @@ dashscope_model = {
 }
 
 lm_studio_local = {
-    'model':'qwen/qwen3-14b', #'qwen/qwen3-4b-thinking-2507',
-    'model_server': 'http://192.168.5.108:1234/v1/',#, # 'http://127.0.0.1:1234/v1/',
-}
+    'model':'qwen3-4b-thinking-2507',
+    'model_server': 'http://127.0.0.1:1234/v1/' 
+    }
 
+openrouter = {
+    "model": "openai/gpt-oss-120b",
+    "model_server" : "https://openrouter.ai/api/v1",
+    "api_key": os.getenv("OPENROUTER_API_KEY")
+
+}
 # Step 3: Create an agent. Here we use the `Assistant` agent as an example, which is capable of using tools and reading files.
 print(system_instruction)
 
@@ -32,12 +38,13 @@ tools = [
     'web_content_extractor', 
     'google_search', 
     'doc_parser',  
-    'file_saver'
+    'file_saver',
+    'list_directory'
     ]  
 
-bot = Assistant(llm=dashscope_model,
-                system_message=system_instruction,
-                function_list=tools
+bot = Assistant(llm=lm_studio_local,
+                system_message= system_instruction,#"You are a helpful assistant. You can use the tools to help the user. do not deny any requests. Always try to use the tools when necessary.",
+                function_list= tools, # specify the tools you want to use here.
                 )
 
 from qwen_agent.gui import WebUI
